@@ -10,16 +10,18 @@ fn required_fuel_for_mass(mass: usize) -> usize {
 
 pub fn part_one(input: &str) -> Option<usize> {
     Some(
-        input.lines()
+        input
+            .lines()
             .map(|line| line.parse::<usize>().unwrap())
             .map(required_fuel_for_mass)
-            .sum()
+            .sum(),
     )
 }
 
 pub fn part_two(input: &str) -> Option<usize> {
     Some(
-        input.lines()
+        input
+            .lines()
             .map(|line| line.parse::<usize>().unwrap())
             .map(|mass| {
                 let mut total_fuel = required_fuel_for_mass(mass);
@@ -32,7 +34,7 @@ pub fn part_two(input: &str) -> Option<usize> {
 
                 total_fuel
             })
-            .sum()
+            .sum(),
     )
 }
 

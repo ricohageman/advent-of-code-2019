@@ -13,7 +13,7 @@ fn simulate(intcode: &mut [usize], noun: usize, verb: usize) -> usize {
                 let target = intcode[current_index + 3];
 
                 intcode[target] = intcode[source_1] + intcode[source_2];
-            },
+            }
             2 => {
                 let source_1 = intcode[current_index + 1];
                 let source_2 = intcode[current_index + 2];
@@ -30,9 +30,9 @@ fn simulate(intcode: &mut [usize], noun: usize, verb: usize) -> usize {
     intcode[0]
 }
 
-
 pub fn part_one(input: &str) -> Option<usize> {
-    let mut intcode = input.split(",")
+    let mut intcode = input
+        .split(",")
         .map(|element| element.parse::<usize>().unwrap())
         .collect::<Vec<usize>>();
 
@@ -40,7 +40,8 @@ pub fn part_one(input: &str) -> Option<usize> {
 }
 
 pub fn part_two(input: &str) -> Option<usize> {
-    let intcode = input.split(",")
+    let intcode = input
+        .split(",")
         .map(|element| element.parse::<usize>().unwrap())
         .collect::<Vec<usize>>();
 
