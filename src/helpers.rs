@@ -3,11 +3,12 @@
  * Example import from this file: `use advent_of_code::helpers::example_fn;`.
  */
 use std::cmp::Ordering;
+use std::iter;
 
 #[derive(Clone)]
 pub struct Intcode {
     code: Vec<isize>,
-    index: usize,
+    index: isize,
 }
 
 impl Intcode {
@@ -15,6 +16,8 @@ impl Intcode {
         let code = input
             .split(",")
             .map(|element| element.parse::<isize>().unwrap())
+            .chain(iter::repeat(0))
+            .take(10000)
             .collect::<Vec<isize>>();
 
         Self { code, index: 0 }
@@ -24,26 +27,34 @@ impl Intcode {
         self.code[index] = value;
     }
 
-    pub fn get(&self, index: usize) -> isize {
-        self.code[index]
+    pub fn get(&self, index: isize) -> isize {
+        self.code[index as usize]
     }
 
-    pub fn current(self) -> isize {
-        self.get(self.index)
-    }
-
-    pub fn next(&mut self, mode: ParameterMode) -> isize {
+    pub fn next(&mut self, mode: ParameterMode, relative_base: isize) -> isize {
         let value = self.get(self.index);
         self.index += 1;
 
         match mode {
-            ParameterMode::Position => self.get(value as usize),
+            ParameterMode::Position => self.get(value),
             ParameterMode::Immediate => value,
+            ParameterMode::Relative => self.get(value + relative_base),
+        }
+    }
+
+    pub fn next_target(&mut self, mode: ParameterMode, relative_base: isize) -> isize {
+        let value = self.get(self.index);
+        self.index += 1;
+
+        match mode {
+            ParameterMode::Position => value,
+            ParameterMode::Relative => value + relative_base,
+            ParameterMode::Immediate => panic!(),
         }
     }
 
     pub fn jump_to(&mut self, target: isize) {
-        self.index = target as usize;
+        self.index = target;
     }
 }
 
@@ -58,6 +69,7 @@ pub enum Opcode {
     JumpIfFalse,
     LessThan,
     Equals,
+    ChangeRelativeBase,
 }
 
 impl Opcode {
@@ -72,15 +84,17 @@ impl Opcode {
             6 => Opcode::JumpIfFalse,
             7 => Opcode::LessThan,
             8 => Opcode::Equals,
+            9 => Opcode::ChangeRelativeBase,
             _ => panic!("Undefined opcode: '{value}'"),
         }
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ParameterMode {
     Position,
     Immediate,
+    Relative
 }
 
 impl ParameterMode {
@@ -88,6 +102,7 @@ impl ParameterMode {
         match value {
             0 => ParameterMode::Position,
             1 => ParameterMode::Immediate,
+            2 => ParameterMode::Relative,
             _ => panic!("Unknown parameter mode: '{value}'"),
         }
     }
@@ -108,11 +123,15 @@ impl ParsedOpcode {
         let opcode = digits.next().unwrap() + digits.next().unwrap_or(0) * 10;
         let code = Opcode::convert(opcode as usize);
 
+        let parameter_mode: Vec<ParameterMode> = digits
+            .map(|element| ParameterMode::convert(element as isize))
+            .chain(iter::repeat(ParameterMode::Position))
+            .take(3)
+            .collect();
+
         Self {
             code,
-            parameter_mode: digits
-                .map(|element| ParameterMode::convert(element as isize))
-                .collect(),
+            parameter_mode,
             index: 0,
         }
     }
@@ -122,7 +141,7 @@ impl ParsedOpcode {
             .parameter_mode
             .get(self.index)
             .copied()
-            .unwrap_or(ParameterMode::Position);
+            .unwrap();
 
         self.index += 1;
         mode
@@ -155,11 +174,12 @@ impl Input {
 
 pub struct IntcodeComputer {
     pub code: Intcode,
+    relative_base: isize,
 }
 
 impl IntcodeComputer {
     pub fn new(code: Intcode) -> Self {
-        Self { code }
+        Self { code, relative_base: 0 }
     }
 
     pub fn simulate_without_input(&mut self) -> Vec<isize> {
@@ -171,36 +191,37 @@ impl IntcodeComputer {
         let mut output = Vec::new();
 
         loop {
-            let mut opcode = ParsedOpcode::new(self.code.next(ParameterMode::Immediate));
+            let value = self.code.next(ParameterMode::Immediate, self.relative_base);
+            let mut opcode = ParsedOpcode::new(value);
 
             match opcode.code {
                 Opcode::Break => break,
                 Opcode::Add => {
-                    let source_1 = self.code.next(opcode.next_mode());
-                    let source_2 = self.code.next(opcode.next_mode());
-                    let target = self.code.next(ParameterMode::Immediate);
+                    let source_1 = self.code.next(opcode.next_mode(), self.relative_base);
+                    let source_2 = self.code.next(opcode.next_mode(), self.relative_base);
+                    let target = self.code.next_target(opcode.next_mode(), self.relative_base);
 
                     self.code.set(target as usize, source_1 + source_2);
                 }
                 Opcode::Multiply => {
-                    let source_1 = self.code.next(opcode.next_mode());
-                    let source_2 = self.code.next(opcode.next_mode());
-                    let target = self.code.next(ParameterMode::Immediate);
+                    let source_1 = self.code.next(opcode.next_mode(), self.relative_base);
+                    let source_2 = self.code.next(opcode.next_mode(), self.relative_base);
+                    let target = self.code.next_target(opcode.next_mode(), self.relative_base);
 
                     self.code.set(target as usize, source_1 * source_2);
                 }
                 Opcode::Input => {
-                    let target = self.code.next(ParameterMode::Immediate);
+                    let target = self.code.next_target(opcode.next_mode(), self.relative_base);
                     let value = input.next();
                     self.code.set(target as usize, value as isize);
                 }
                 Opcode::Output => {
-                    let value = self.code.next(opcode.next_mode());
+                    let value = self.code.next(opcode.next_mode(), self.relative_base);
                     output.push(value);
                 }
                 Opcode::JumpIfTrue => {
-                    let value = self.code.next(opcode.next_mode());
-                    let target = self.code.next(opcode.next_mode());
+                    let value = self.code.next(opcode.next_mode(), self.relative_base);
+                    let target = self.code.next(opcode.next_mode(), self.relative_base);
 
                     if value == 0 {
                         continue;
@@ -209,8 +230,8 @@ impl IntcodeComputer {
                     self.code.jump_to(target);
                 }
                 Opcode::JumpIfFalse => {
-                    let value = self.code.next(opcode.next_mode());
-                    let target = self.code.next(opcode.next_mode());
+                    let value = self.code.next(opcode.next_mode(), self.relative_base);
+                    let target = self.code.next(opcode.next_mode(), self.relative_base);
 
                     if value != 0 {
                         continue;
@@ -219,9 +240,9 @@ impl IntcodeComputer {
                     self.code.jump_to(target);
                 }
                 Opcode::LessThan => {
-                    let source_1 = self.code.next(opcode.next_mode());
-                    let source_2 = self.code.next(opcode.next_mode());
-                    let target = self.code.next(ParameterMode::Immediate);
+                    let source_1 = self.code.next(opcode.next_mode(), self.relative_base);
+                    let source_2 = self.code.next(opcode.next_mode(), self.relative_base);
+                    let target = self.code.next_target(opcode.next_mode(), self.relative_base);
 
                     let result = match source_1.cmp(&source_2) {
                         Ordering::Less => 1,
@@ -232,9 +253,9 @@ impl IntcodeComputer {
                     self.code.set(target as usize, result);
                 }
                 Opcode::Equals => {
-                    let source_1 = self.code.next(opcode.next_mode());
-                    let source_2 = self.code.next(opcode.next_mode());
-                    let target = self.code.next(ParameterMode::Immediate);
+                    let source_1 = self.code.next(opcode.next_mode(), self.relative_base);
+                    let source_2 = self.code.next(opcode.next_mode(), self.relative_base);
+                    let target = self.code.next_target(opcode.next_mode(), self.relative_base);
 
                     let result = match source_1.cmp(&source_2) {
                         Ordering::Less => 0,
@@ -243,6 +264,10 @@ impl IntcodeComputer {
                     };
 
                     self.code.set(target as usize, result);
+                },
+                Opcode::ChangeRelativeBase => {
+                    let amount = self.code.next(opcode.next_mode(), self.relative_base);
+                    self.relative_base += amount;
                 }
             }
         }
@@ -261,7 +286,7 @@ mod tests {
         let mut computer = IntcodeComputer::new(intcode);
         computer.simulate_without_input();
 
-        assert_eq!(computer.code.code, vec![2, 0, 0, 0, 99])
+        assert_eq!(&computer.code.code[0..5], &[2, 0, 0, 0, 99])
     }
 
     #[test]
@@ -270,7 +295,7 @@ mod tests {
         let mut computer = IntcodeComputer::new(intcode);
         computer.simulate_without_input();
 
-        assert_eq!(computer.code.code, vec![2, 3, 0, 6, 99])
+        assert_eq!(&computer.code.code[0..5], &[2, 3, 0, 6, 99])
     }
 
     #[test]
@@ -279,7 +304,7 @@ mod tests {
         let mut computer = IntcodeComputer::new(intcode);
         computer.simulate_without_input();
 
-        assert_eq!(computer.code.code, vec![2, 4, 4, 5, 99, 9801])
+        assert_eq!(&computer.code.code[0..6], &[2, 4, 4, 5, 99, 9801])
     }
 
     #[test]
@@ -288,7 +313,7 @@ mod tests {
         let mut computer = IntcodeComputer::new(intcode);
         computer.simulate_without_input();
 
-        assert_eq!(computer.code.code, vec![30, 1, 1, 4, 2, 5, 6, 0, 99])
+        assert_eq!(&computer.code.code[0..9], &[30, 1, 1, 4, 2, 5, 6, 0, 99])
     }
 
     #[test]
@@ -297,6 +322,33 @@ mod tests {
         let mut computer = IntcodeComputer::new(intcode);
         computer.simulate_without_input();
 
-        assert_eq!(computer.code.code, vec![1101, 100, -1, 4, 99])
+        assert_eq!(&computer.code.code[0..5], &[1101, 100, -1, 4, 99])
+    }
+
+    #[test]
+    fn test_day_9_copy() {
+        let intcode = Intcode::from_input("109,1,204,-1,1001,100,1,100,1008,100,16,101,1006,101,0,99");
+        let mut computer = IntcodeComputer::new(intcode);
+        let output = computer.simulate_without_input();
+
+        assert_eq!(output, vec![109,1,204,-1,1001,100,1,100,1008,100,16,101,1006,101,0,99])
+    }
+
+    #[test]
+    fn test_day_9_large_output() {
+        let intcode = Intcode::from_input("1102,34915192,34915192,7,4,7,99,0");
+        let mut computer = IntcodeComputer::new(intcode);
+        let output = computer.simulate_without_input();
+
+        assert_eq!(output, vec![1219070632396864])
+    }
+
+    #[test]
+    fn test_day_9_large_output_2() {
+        let intcode = Intcode::from_input("104,1125899906842624,99");
+        let mut computer = IntcodeComputer::new(intcode);
+        let output = computer.simulate_without_input();
+
+        assert_eq!(output, vec![1125899906842624])
     }
 }
